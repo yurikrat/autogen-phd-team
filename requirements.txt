@@ -7,3 +7,4 @@ requests
 flask
 flask-socketio
 python-socketio
+python-socketio

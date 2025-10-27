@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ultimate Executor - AI Code Generator</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+        
+        header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            margin-bottom: 20px;
+        }
+        
+        .input-section {
+            margin-bottom: 20px;
+        }
+        
+        .input-section label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #333;
+        }
+        
+        .input-section textarea {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 120px;
+        }
+        
+        .input-section textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            font-size: 18px;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .output-section {
+            display: none;
+        }
+        
+        .output-section.active {
+            display: block;
+        }
+        
+        .output-section h3 {
+            color: #333;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .logs {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            max-height: 400px;
+            overflow-y: auto;
+            line-height: 1.6;
+        }
+        
+        .log-line {
+            margin-bottom: 5px;
+        }
+        
+        .files-list {
+            display: grid;
+            gap: 10px;
+        }
+        
+        .file-item {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-left: 4px solid #667eea;
+        }
+        
+        .file-name {
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .file-size {
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .status {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        
+        .status.running {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #667eea;
+            animation: spin 1s ease-in-out infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .output-path {
+            background: #e8f5e9;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+            font-family: 'Courier New', monospace;
+            word-break: break-all;
+        }
+        
+        .examples {
+            margin-top: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        
+        .examples h4 {
+            margin-bottom: 10px;
+            color: #333;
+        }
+        
+        .example-item {
+            padding: 8px 12px;
+            margin: 5px 0;
+            background: white;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        
+        .example-item:hover {
+            background: #e9ecef;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚀 Ultimate Executor</h1>
+            <p>Gerador de Código AI - Simples, Direto e Funcional</p>
+        </header>
+        
+        <div class="card">
+            <div class="input-section">
+                <label for="task">📋 Descreva o que você quer criar:</label>
+                <textarea 
+                    id="task" 
+                    placeholder="Exemplo: Criar API REST com FastAPI para gerenciar produtos com endpoints CRUD, validação Pydantic e testes pytest"
+                ></textarea>
+            </div>
+            
+            <button id="executeBtn" class="btn" onclick="executeTask()">
+                🚀 Gerar Código
+            </button>
+            
+            <div class="examples">
+                <h4>💡 Exemplos de tarefas:</h4>
+                <div class="example-item" onclick="setExample(this)">
+                    Criar API REST com FastAPI: endpoints CRUD para produtos, validação Pydantic, testes pytest
+                </div>
+                <div class="example-item" onclick="setExample(this)">
+                    Criar sistema de autenticação com JWT: login, registro, refresh token, middleware de proteção
+                </div>
+                <div class="example-item" onclick="setExample(this)">
+                    Criar scraper web com BeautifulSoup: extrair notícias de site, salvar em JSON, incluir testes
+                </div>
+                <div class="example-item" onclick="setExample(this)">
+                    Criar CLI tool com Click: comandos para processar arquivos CSV, gerar relatórios, validar dados
+                </div>
+            </div>
+        </div>
+        
+        <div id="outputSection" class="card output-section">
+            <h3>
+                <span id="statusIcon">⏳</span>
+                <span id="statusText">Executando...</span>
+                <span id="statusBadge" class="status running">Em andamento</span>
+            </h3>
+            
+            <div class="logs" id="logs"></div>
+            
+            <div id="filesSection" style="margin-top: 20px; display: none;">
+                <h3>📦 Arquivos Criados:</h3>
+                <div class="files-list" id="filesList"></div>
+            </div>
+            
+            <div id="outputPath" style="display: none;">
+                <h3>📁 Localização:</h3>
+                <div class="output-path" id="outputPathText"></div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const socket = io();
+        let isRunning = false;
+        
+        function setExample(element) {
+            document.getElementById('task').value = element.textContent.trim();
+        }
+        
+        function executeTask() {
+            const task = document.getElementById('task').value.trim();
+            
+            if (!task) {
+                alert('Por favor, descreva a tarefa!');
+                return;
+            }
+            
+            if (isRunning) {
+                alert('Já existe uma execução em andamento!');
+                return;
+            }
+            
+            // Limpar outputs anteriores
+            document.getElementById('logs').innerHTML = '';
+            document.getElementById('filesList').innerHTML = '';
+            document.getElementById('filesSection').style.display = 'none';
+            document.getElementById('outputPath').style.display = 'none';
+            
+            // Mostrar seção de output
+            document.getElementById('outputSection').classList.add('active');
+            
+            // Desabilitar botão
+            const btn = document.getElementById('executeBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Gerando...';
+            
+            isRunning = true;
+            
+            // Enviar requisição
+            fetch('/api/execute', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ task: task })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert(data.error);
+                    resetUI();
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Erro ao iniciar execução');
+                resetUI();
+            });
+        }
+        
+        function resetUI() {
+            const btn = document.getElementById('executeBtn');
+            btn.disabled = false;
+            btn.innerHTML = '🚀 Gerar Código';
+            isRunning = false;
+        }
+        
+        function addLog(message) {
+            const logs = document.getElementById('logs');
+            const line = document.createElement('div');
+            line.className = 'log-line';
+            line.textContent = message;
+            logs.appendChild(line);
+            logs.scrollTop = logs.scrollHeight;
+        }
+        
+        function addFile(filename, size) {
+            const filesList = document.getElementById('filesList');
+            const filesSection = document.getElementById('filesSection');
+            
+            const fileItem = document.createElement('div');
+            fileItem.className = 'file-item';
+            fileItem.innerHTML = `
+                <span class="file-name">📄 ${filename}</span>
+                <span class="file-size">${size}</span>
+            `;
+            
+            filesList.appendChild(fileItem);
+            filesSection.style.display = 'block';
+        }
+        
+        // WebSocket events
+        socket.on('execution_started', (data) => {
+            addLog(`🚀 Iniciando execução: ${data.task}`);
+        });
+        
+        socket.on('log', (data) => {
+            addLog(data.message);
+        });
+        
+        socket.on('file_created', (data) => {
+            addFile(data.filename, data.size);
+        });
+        
+        socket.on('output_dir', (data) => {
+            const outputPath = document.getElementById('outputPath');
+            const outputPathText = document.getElementById('outputPathText');
+            outputPathText.textContent = data.path;
+            outputPath.style.display = 'block';
+        });
+        
+        socket.on('execution_completed', (data) => {
+            if (data.status === 'success') {
+                document.getElementById('statusIcon').textContent = '✅';
+                document.getElementById('statusText').textContent = 'Concluído com sucesso!';
+                document.getElementById('statusBadge').className = 'status success';
+                document.getElementById('statusBadge').textContent = 'Sucesso';
+                addLog('\n✅ Código gerado com sucesso!');
+            } else {
+                document.getElementById('statusIcon').textContent = '❌';
+                document.getElementById('statusText').textContent = 'Erro na execução';
+                document.getElementById('statusBadge').className = 'status error';
+                document.getElementById('statusBadge').textContent = 'Erro';
+                addLog('\n❌ Erro ao gerar código');
+            }
+            resetUI();
+        });
+        
+        socket.on('execution_error', (data) => {
+            addLog(`\n❌ ERRO: ${data.error}`);
+            document.getElementById('statusIcon').textContent = '❌';
+            document.getElementById('statusText').textContent = 'Erro na execução';
+            document.getElementById('statusBadge').className = 'status error';
+            document.getElementById('statusBadge').textContent = 'Erro';
+            resetUI();
+        });
+    </script>
+</body>
+</html>
+
