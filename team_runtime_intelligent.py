@@ -157,7 +157,8 @@ async def main():
         sys.exit(1)
     
     # Criar time com RoundRobinGroupChat
-    termination = TextMentionTermination("TAREFA_FINALIZADA") | MaxMessageTermination(100)
+    # Usar apenas MaxMessageTermination para dar tempo aos agentes
+    termination = MaxMessageTermination(50)
     
     team = RoundRobinGroupChat(
         participants=agents,
@@ -191,9 +192,9 @@ async def main():
    - Segurança está adequada?
 
 5. **Finalização:** Ao concluir, Finalizer deve:
-   - Listar todos os artefatos
-   - Gerar MANIFEST.md
-   - Dizer "TAREFA_FINALIZADA"
+   - Listar todos os artefatos com list_artifacts()
+   - Gerar MANIFEST.md com finalize_run()
+   - Confirmar que a tarefa foi completada com qualidade
 
 **Run Directory:** {store.run_dir.absolute()}
 
