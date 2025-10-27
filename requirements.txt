@@ -1,0 +1,9 @@
+autogen-agentchat
+autogen-ext[openai]
+python-dotenv
+requests
+
+
+flask
+flask-socketio
+python-socketio
