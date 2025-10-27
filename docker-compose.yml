@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  autogen-phd-team:
+    build: .
+    container_name: autogen-phd-team
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - PORT=8000
+      - SECRET_KEY=${SECRET_KEY:-autogen-phd-team-secret-key}
+    volumes:
+      # Persistir runs entre restarts
+      - ./runs:/app/runs
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+

@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoGen PhD Team - Interface Web</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .header h1 {
+            color: #667eea;
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 16px;
+        }
+
+        .task-input-section {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .task-input-section h2 {
+            color: #333;
+            margin-bottom: 15px;
+        }
+
+        .task-input {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            font-size: 16px;
+            resize: vertical;
+            min-height: 100px;
+            font-family: inherit;
+        }
+
+        .task-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn-submit {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            border-radius: 10px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 15px;
+            transition: transform 0.2s;
+        }
+
+        .btn-submit:hover {
+            transform: scale(1.05);
+        }
+
+        .btn-submit:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .execution-section {
+            display: none;
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .execution-section.active {
+            display: block;
+        }
+
+        .status-bar {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+
+        .status-bar .status {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 12px;
+        }
+
+        .status.initializing { background: #ffc107; color: white; }
+        .status.running { background: #4caf50; color: white; animation: pulse 2s infinite; }
+        .status.completed { background: #2196f3; color: white; }
+        .status.error { background: #f44336; color: white; }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+        }
+
+        .stat-card .label {
+            color: #666;
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+
+        .stat-card .value {
+            color: #333;
+            font-size: 24px;
+            font-weight: 700;
+            margin-top: 5px;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #eee;
+        }
+
+        .tab {
+            padding: 10px 20px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            color: #666;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s;
+        }
+
+        .tab.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+            font-weight: 600;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .messages-list {
+            max-height: 500px;
+            overflow-y: auto;
+            background: #f9f9f9;
+            border-radius: 10px;
+            padding: 15px;
+        }
+
+        .message {
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 10px;
+            border-left: 4px solid #667eea;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message .source {
+            font-weight: 600;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+
+        .message .content {
+            color: #333;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .message .time {
+            color: #999;
+            font-size: 12px;
+            margin-top: 5px;
+        }
+
+        .artifacts-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 15px;
+        }
+
+        .artifact-card {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 4px solid #4caf50;
+        }
+
+        .artifact-card .name {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .artifact-card .kind {
+            color: #666;
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+
+        .validation-section {
+            background: #f9f9f9;
+            padding: 20px;
+            border-radius: 10px;
+        }
+
+        .validation-score {
+            font-size: 48px;
+            font-weight: 700;
+            color: #667eea;
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        .validation-feedback {
+            list-style: none;
+        }
+
+        .validation-feedback li {
+            padding: 10px;
+            margin-bottom: 5px;
+            border-radius: 5px;
+        }
+
+        .validation-feedback li.success {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+
+        .validation-feedback li.warning {
+            background: #fff3e0;
+            color: #e65100;
+        }
+
+        .validation-feedback li.error {
+            background: #ffebee;
+            color: #c62828;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+
+        .empty-state svg {
+            width: 64px;
+            height: 64px;
+            margin-bottom: 15px;
+            opacity: 0.5;
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #667eea;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎼 AutoGen PhD Team</h1>
+            <p>Time de agentes de TI nível PhD/Nobel - Interface Web Completa</p>
+        </div>
+
+        <div class="task-input-section" id="taskInputSection">
+            <h2>📋 Nova Tarefa</h2>
+            <textarea 
+                id="taskInput" 
+                class="task-input" 
+                placeholder="Descreva sua tarefa aqui...&#10;&#10;Exemplo: Criar API REST para gerenciamento de usuários com autenticação JWT, validação de dados, testes unitários e documentação Swagger"
+            ></textarea>
+            <button id="submitBtn" class="btn-submit" onclick="submitTask()">🚀 Executar Tarefa</button>
+        </div>
+
+        <div class="execution-section" id="executionSection">
+            <div class="status-bar">
+                <span class="status" id="statusBadge">Inicializando</span>
+                <div class="stats">
+                    <div class="stat-card">
+                        <div class="label">Agentes</div>
+                        <div class="value" id="agentCount">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">Mensagens</div>
+                        <div class="value" id="messageCount">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">Artefatos</div>
+                        <div class="value" id="artifactCount">0</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tabs">
+                <button class="tab active" onclick="switchTab('messages')">💬 Conversas</button>
+                <button class="tab" onclick="switchTab('artifacts')">📦 Artefatos</button>
+                <button class="tab" onclick="switchTab('validation')">🔍 Validação</button>
+            </div>
+
+            <div id="messagesTab" class="tab-content active">
+                <div class="messages-list" id="messagesList">
+                    <div class="empty-state">
+                        <p>Aguardando início da execução...</p>
+                    </div>
+                </div>
+            </div>
+
+            <div id="artifactsTab" class="tab-content">
+                <div class="artifacts-list" id="artifactsList">
+                    <div class="empty-state">
+                        <p>Nenhum artefato criado ainda</p>
+                    </div>
+                </div>
+            </div>
+
+            <div id="validationTab" class="tab-content">
+                <div class="validation-section" id="validationSection">
+                    <div class="empty-state">
+                        <p>Validação será executada ao final</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let currentTaskId = null;
+
+        function submitTask() {
+            const taskText = document.getElementById('taskInput').value.trim();
+            if (!taskText) {
+                alert('Por favor, descreva a tarefa');
+                return;
+            }
+
+            // Desabilitar botão
+            document.getElementById('submitBtn').disabled = true;
+            document.getElementById('submitBtn').textContent = '⏳ Executando...';
+
+            // Criar tarefa
+            fetch('/api/task/create', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({task: taskText})
+            })
+            .then(r => r.json())
+            .then(data => {
+                currentTaskId = data.task_id;
+                
+                // Mostrar seção de execução
+                document.getElementById('executionSection').classList.add('active');
+                
+                // Juntar-se à room do WebSocket
+                socket.emit('join_task', {task_id: currentTaskId});
+                
+                // Limpar listas
+                document.getElementById('messagesList').innerHTML = '';
+                document.getElementById('artifactsList').innerHTML = '';
+            })
+            .catch(err => {
+                alert('Erro ao criar tarefa: ' + err);
+                document.getElementById('submitBtn').disabled = false;
+                document.getElementById('submitBtn').textContent = '🚀 Executar Tarefa';
+            });
+        }
+
+        function switchTab(tab) {
+            // Atualizar tabs
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            
+            event.target.classList.add('active');
+            document.getElementById(tab + 'Tab').classList.add('active');
+        }
+
+        // WebSocket events
+        socket.on('status_update', (data) => {
+            if (data.task_id !== currentTaskId) return;
+            
+            const badge = document.getElementById('statusBadge');
+            badge.textContent = data.status;
+            badge.className = 'status ' + data.status;
+            
+            document.getElementById('agentCount').textContent = data.agents.length;
+            document.getElementById('messageCount').textContent = data.message_count;
+            document.getElementById('artifactCount').textContent = data.artifact_count;
+            
+            if (data.status === 'completed' || data.status === 'error') {
+                document.getElementById('submitBtn').disabled = false;
+                document.getElementById('submitBtn').textContent = '🚀 Executar Tarefa';
+            }
+        });
+
+        socket.on('new_message', (data) => {
+            if (data.task_id !== currentTaskId) return;
+            
+            const list = document.getElementById('messagesList');
+            const msg = document.createElement('div');
+            msg.className = 'message';
+            msg.innerHTML = `
+                <div class="source">${data.source}</div>
+                <div class="content">${data.content}</div>
+                <div class="time">${new Date(data.timestamp).toLocaleTimeString()}</div>
+            `;
+            list.appendChild(msg);
+            list.scrollTop = list.scrollHeight;
+        });
+
+        socket.on('artifacts_update', (data) => {
+            if (data.task_id !== currentTaskId) return;
+            
+            const list = document.getElementById('artifactsList');
+            list.innerHTML = '';
+            
+            if (data.artifacts.length === 0) {
+                list.innerHTML = '<div class="empty-state"><p>Nenhum artefato criado ainda</p></div>';
+                return;
+            }
+            
+            data.artifacts.forEach(art => {
+                const card = document.createElement('div');
+                card.className = 'artifact-card';
+                card.innerHTML = `
+                    <div class="name">${art.name}</div>
+                    <div class="kind">${art.kind}</div>
+                `;
+                list.appendChild(card);
+            });
+        });
+
+        socket.on('validation_result', (data) => {
+            if (data.task_id !== currentTaskId) return;
+            
+            const section = document.getElementById('validationSection');
+            const val = data.validation;
+            
+            section.innerHTML = `
+                <div class="validation-score">${(val.score * 100).toFixed(0)}%</div>
+                <ul class="validation-feedback">
+                    ${val.feedback.map(f => {
+                        let cls = 'success';
+                        if (f.includes('❌')) cls = 'error';
+                        else if (f.includes('⚠️')) cls = 'warning';
+                        return `<li class="${cls}">${f}</li>`;
+                    }).join('')}
+                </ul>
+            `;
+        });
+
+        socket.on('execution_error', (data) => {
+            if (data.task_id !== currentTaskId) return;
+            alert('Erro na execução: ' + data.error);
+        });
+    </script>
+</body>
+</html>
+
