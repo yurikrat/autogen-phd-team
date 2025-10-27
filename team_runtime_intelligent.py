@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Team Runtime Visual: Versão com dashboard web em tempo real e sistema de provocação.
+Team Runtime Intelligent: Versão com provocação contextual e validação inteligente.
+Sistema que funciona como um time humano real, não com perguntas pré-prontas.
 """
 
 import asyncio
@@ -16,12 +17,13 @@ from autogen_agentchat.teams import RoundRobinGroupChat
 from autogen_agentchat.conditions import TextMentionTermination, MaxMessageTermination
 from autogen_ext.models.openai import OpenAIChatCompletionClient
 
-from tools.artifact_store import init_store
+from tools.artifact_store import init_store, get_store
 from tools import io_tools
 from autogen_core.tools import FunctionTool
 from roles import ROLE_MSG
 from routing import select_roles
-from orchestration import inject_challenge_behavior
+from intelligence.contextual_challenge import get_challenge_system
+from intelligence.artifact_validator import get_validator
 
 # Importar dashboard
 try:
@@ -44,7 +46,7 @@ async def main():
     # Verificar se task foi fornecida
     if len(sys.argv) < 2:
         print("❌ ERRO: Task não fornecida.")
-        print("   Uso: python team_runtime_visual.py \"Sua tarefa aqui...\"")
+        print("   Uso: python team_runtime_intelligent.py \"Sua tarefa aqui...\"")
         sys.exit(1)
     
     task_text = " ".join(sys.argv[1:])
@@ -60,6 +62,10 @@ async def main():
         time.sleep(2)
         webbrowser.open(dashboard_url)
         emit_event('status', {'status': 'running', 'run_dir': None})
+    
+    # Inicializar sistemas de inteligência
+    challenge_system = get_challenge_system()
+    validator = get_validator()
     
     # Inicializar ArtifactStore
     store = init_store()
@@ -92,15 +98,42 @@ async def main():
     selected_roles = select_roles(task_text)
     print(f"📋 PAPÉIS SELECIONADOS: {', '.join(selected_roles)}\n")
     
-    # Criar agentes com comportamento de desafio
+    # Criar agentes com mensagens aprimoradas
     agents = []
     for role_name in selected_roles:
         if role_name not in ROLE_MSG:
             print(f"⚠️  AVISO: Papel '{role_name}' não encontrado em ROLE_MSG. Pulando.")
             continue
         
-        # Injetar comportamento de desafio na mensagem de sistema
-        enhanced_message = inject_challenge_behavior(role_name, ROLE_MSG[role_name])
+        # Adicionar instruções de feedback contínuo e provocação contextual
+        enhanced_message = ROLE_MSG[role_name] + """
+
+**IMPORTANTE - COMPORTAMENTO INTELIGENTE:**
+
+1. **Feedback Contínuo:** Use report_progress() CONSTANTEMENTE
+   - Seja específico: "Criando endpoint GET /users com paginação"
+   - Reporte decisões: "Escolhi PostgreSQL por suportar JSON nativo"
+   - Reporte bloqueios: "Preciso de definição de schema antes de continuar"
+
+2. **Provocação Contextual:** Analise o que outros agentes estão fazendo
+   - Se ver uma decisão técnica, QUESTIONE os trade-offs
+   - Se ver código sem testes, EXIJA testes
+   - Se ver API sem segurança, APONTE os riscos
+   - Seja ESPECÍFICO ao contexto, não genérico
+
+3. **Validação Constante:** Garanta qualidade
+   - Verifique se artefatos fazem sentido para a tarefa
+   - Valide se código está completo e funcional
+   - Confirme que documentação está clara
+
+4. **Colaboração Real:** Funcione como um time humano
+   - Construa em cima do trabalho dos outros
+   - Desafie quando necessário
+   - Melhore iterativamente
+   - Não aceite soluções medianas
+
+**LEMBRE-SE:** Você é um profissional PhD/Nobel. Exija excelência!
+"""
         
         agent = AssistantAgent(
             name=role_name,
@@ -124,53 +157,52 @@ async def main():
         sys.exit(1)
     
     # Criar time com RoundRobinGroupChat
-    termination = TextMentionTermination("CONCLUÍDO") | MaxMessageTermination(80)
+    termination = TextMentionTermination("TAREFA_FINALIZADA") | MaxMessageTermination(100)
     
     team = RoundRobinGroupChat(
         participants=agents,
-        max_turns=len(agents) * 5,
+        max_turns=len(agents) * 10,
         termination_condition=termination,
     )
     
-    # Mensagem introdutória (sem palavra CONCLUÍDO para evitar terminação prematura)
+    # Mensagem introdutória
     intro = f"""
-**TASK:** {task_text}
+**TAREFA:** {task_text}
 
-**REGRAS DE EXECUÇÃO:**
+**INSTRUÇÕES:**
 
-1. **Feedback Contínuo:** Use `report_progress(stage, message)` frequentemente para reportar progresso, decisões e bloqueios.
+1. **Feedback Contínuo:** Use report_progress() CONSTANTEMENTE para reportar o que estão fazendo
 
-2. **Artefatos Concretos:** Salve TODOS os artefatos relevantes usando as tools SAVE_* (save_text, save_markdown, save_json, save_file_from_url, save_base64).
+2. **Artefatos Concretos:** Criem TODOS os artefatos necessários para completar a tarefa
+   - Código completo e funcional
+   - Testes adequados
+   - Documentação clara
+   - Configurações necessárias
 
-3. **Colaboração Estruturada:** 
-   - AI_Orchestrator coordena e decompõe a task
-   - Project_Manager define marcos e monitora progresso
-   - Tech_Architect define arquitetura e padrões
-   - Papéis especializados implementam suas partes
-   - Finalizer consolida tudo ao final
+3. **Provocação Contextual:** Desafiem-se mutuamente baseado no CONTEXTO REAL
+   - Não usem perguntas genéricas
+   - Analisem o que foi dito e QUESTIONEM especificamente
+   - Apontem riscos, gaps e oportunidades de melhoria
 
-4. **PROVOCAÇÃO E EVOLUÇÃO:**
-   - DESAFIE as soluções propostas por outros agentes
-   - Use frases como: "Você considerou...", "E se...", "Como garantir..."
-   - Não aceite soluções medianas - force melhorias
-   - Eleve constantemente o nível técnico
+4. **Validação de Qualidade:** Garantam que o que criaram é BOM
+   - Código funciona?
+   - Testes cobrem casos importantes?
+   - Documentação está clara?
+   - Segurança está adequada?
 
-5. **Finalização Explícita:**
-   - Finalizer deve aguardar até que todos tenham concluído
-   - Chamar `list_artifacts()` para listar artefatos
-   - Chamar `finalize_run()` para gerar MANIFEST.md
-   - Opcionalmente, chamar `zip_run()` para criar bundle
-   - Anunciar caminhos locais dos artefatos
-   - Encerrar dizendo a palavra final de encerramento
+5. **Finalização:** Ao concluir, Finalizer deve:
+   - Listar todos os artefatos
+   - Gerar MANIFEST.md
+   - Dizer "TAREFA_FINALIZADA"
 
-6. **Run Directory:** {store.run_dir.absolute()}
+**Run Directory:** {store.run_dir.absolute()}
 
-**INÍCIO DA EXECUÇÃO:**
+**COMECEM AGORA!**
 """
     
     # Executar time
     print("=" * 80)
-    print("EXECUÇÃO DO TIME")
+    print("EXECUÇÃO DO TIME COM INTELIGÊNCIA CONTEXTUAL")
     print("=" * 80)
     
     if dashboard_url:
@@ -184,32 +216,40 @@ async def main():
             # Extrair informações da mensagem
             msg_type = type(message).__name__
             msg_source = getattr(message, 'source', 'system')
-            msg_content = getattr(message, 'content', str(message))
+            msg_content = str(getattr(message, 'content', message))
             
             # Imprimir no console
             print(f"\n[{message_count}] {msg_source} ({msg_type})")
-            if isinstance(msg_content, str) and len(msg_content) < 500:
-                print(f"  {msg_content[:200]}...")
+            if len(msg_content) < 500:
+                print(f"  {msg_content[:300]}")
+            
+            # Analisar contexto e gerar desafios inteligentes
+            artifacts = store.list()
+            analysis = challenge_system.analyze_context(msg_content, msg_source, artifacts)
+            
+            # Se houver oportunidades de desafio, mostrar
+            if analysis["opportunities"]:
+                print(f"\n  🧠 Análise contextual detectou {len(analysis['opportunities'])} oportunidade(s) de melhoria")
+                for opp in analysis["opportunities"][:2]:  # Mostrar até 2
+                    print(f"     • {opp['type']}: {opp['reason']}")
             
             # Enviar para dashboard
             if DASHBOARD_AVAILABLE:
-                # Detectar desafios
-                is_challenge = any(word in str(msg_content).lower() for word in [
-                    'desafio', 'considerou', 'e se', 'como garantir', 'questiono'
-                ])
+                is_challenge = "🎯" in msg_content or any(
+                    opp["type"] in ["technical_review", "security_review", "performance_review"]
+                    for opp in analysis.get("opportunities", [])
+                )
                 
-                # Detectar melhorias
-                is_improvement = any(word in str(msg_content).lower() for word in [
-                    'melhoria', 'otimização', 'aprimoramento', 'correção'
-                ])
+                is_improvement = "melhoria" in msg_content.lower() or "otimização" in msg_content.lower()
                 
                 emit_event('message', {
                     'source': msg_source,
-                    'content': str(msg_content)[:500],  # Limitar tamanho
+                    'content': msg_content[:500],
                     'timestamp': datetime.now().isoformat(),
                     'type': msg_type,
                     'is_challenge': is_challenge,
                     'is_improvement': is_improvement,
+                    'opportunities': analysis.get("opportunities", [])
                 })
                 
                 if is_challenge:
@@ -219,23 +259,37 @@ async def main():
                     emit_event('improvement', {'by': msg_source})
                 
                 # Detectar artefatos criados
-                if 'save_' in str(msg_content) and 'status' in str(msg_content):
-                    try:
-                        # Tentar extrair informações do artefato
-                        if hasattr(message, 'content') and isinstance(message.content, str):
-                            if 'file' in message.content:
-                                emit_event('artifact', {
-                                    'name': 'Artefato criado',
-                                    'kind': 'file',
-                                    'path': 'Ver progress.log',
-                                    'timestamp': datetime.now().isoformat(),
-                                })
-                    except:
-                        pass
+                if 'save_' in msg_content and 'status' in msg_content:
+                    emit_event('artifact', {
+                        'name': 'Artefato criado',
+                        'kind': 'file',
+                        'timestamp': datetime.now().isoformat(),
+                    })
         
         print("\n" + "=" * 80)
         print(f"EXECUÇÃO CONCLUÍDA - {message_count} mensagens processadas")
         print("=" * 80)
+        
+        # Validar artefatos automaticamente
+        print("\n🔍 Validando qualidade dos artefatos...\n")
+        artifacts = store.list()
+        validation = validator.validate_artifacts_for_task(task_text, artifacts)
+        
+        print(f"📊 Score de Qualidade: {validation['score']:.1%}\n")
+        for feedback in validation["feedback"]:
+            print(f"  {feedback}")
+        
+        if validation["quality_issues"]:
+            print("\n⚠️ Problemas de Qualidade Detectados:")
+            for issue in validation["quality_issues"]:
+                print(f"  {issue}")
+        
+        suggestions = validator.generate_improvement_suggestions(validation)
+        if suggestions:
+            print("\n💡 Sugestões de Melhoria:")
+            for suggestion in suggestions:
+                print(f"  {suggestion}")
+        
         print(f"\n✅ Artefatos salvos em: {store.run_dir.absolute()}")
         print(f"📄 Veja o MANIFEST.md para lista completa de artefatos.\n")
         
