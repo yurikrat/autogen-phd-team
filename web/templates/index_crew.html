@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crew Advanced - Agentes Especializados</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+        
+        header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            margin-bottom: 20px;
+        }
+        
+        .input-section textarea {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            resize: vertical;
+            min-height: 100px;
+            font-family: inherit;
+        }
+        
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            font-size: 18px;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            margin-top: 15px;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        .agents-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        
+        .agent-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            border-left: 5px solid #ccc;
+            transition: all 0.3s;
+        }
+        
+        .agent-card.pending {
+            border-left-color: #999;
+            opacity: 0.6;
+        }
+        
+        .agent-card.running {
+            border-left-color: #ffa500;
+            animation: pulse 2s infinite;
+        }
+        
+        .agent-card.completed {
+            border-left-color: #4caf50;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        
+        .agent-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .agent-icon {
+            font-size: 2em;
+        }
+        
+        .agent-info h3 {
+            font-size: 1.1em;
+            margin-bottom: 5px;
+        }
+        
+        .agent-status {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .agent-status.pending {
+            background: #e0e0e0;
+            color: #666;
+        }
+        
+        .agent-status.running {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .agent-status.completed {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .artifacts-list {
+            margin-top: 15px;
+        }
+        
+        .artifact-item {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .artifact-name {
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .artifact-size {
+            color: #666;
+            font-size: 13px;
+        }
+        
+        .logs-section {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            max-height: 400px;
+            overflow-y: auto;
+            line-height: 1.6;
+        }
+        
+        .output-section {
+            display: none;
+        }
+        
+        .output-section.active {
+            display: block;
+        }
+        
+        .summary-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+        }
+        
+        .summary-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        
+        .stat-item {
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 2em;
+            font-weight: bold;
+        }
+        
+        .stat-label {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s;
+        }
+        
+        .tab.active {
+            border-bottom-color: #667eea;
+            color: #667eea;
+            font-weight: 600;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎼 Crew Advanced</h1>
+            <p>Agentes Especializados Trabalhando em Equipe</p>
+        </header>
+        
+        <div class="card">
+            <div class="input-section">
+                <label for="task"><strong>📋 Descreva o projeto:</strong></label>
+                <textarea 
+                    id="task" 
+                    placeholder="Exemplo: Criar API REST com FastAPI para gerenciar produtos com endpoints CRUD, validação Pydantic, testes completos e documentação"
+                ></textarea>
+            </div>
+            
+            <button id="executeBtn" class="btn" onclick="executeTask()">
+                🚀 Iniciar Desenvolvimento
+            </button>
+        </div>
+        
+        <div id="outputSection" class="output-section">
+            <div class="summary-card" id="summaryCard" style="display: none;">
+                <h2>📊 Resumo da Execução</h2>
+                <div class="summary-stats">
+                    <div class="stat-item">
+                        <div class="stat-value" id="totalAgents">5</div>
+                        <div class="stat-label">Agentes</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="totalArtifacts">0</div>
+                        <div class="stat-label">Artefatos</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="completedAgents">0</div>
+                        <div class="stat-label">Concluídos</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="tabs">
+                <div class="tab active" onclick="switchTab('agents')">👥 Agentes</div>
+                <div class="tab" onclick="switchTab('logs')">📋 Logs</div>
+            </div>
+            
+            <div id="agentsTab" class="tab-content active">
+                <div class="agents-grid" id="agentsGrid">
+                    <!-- Agentes serão inseridos aqui -->
+                </div>
+            </div>
+            
+            <div id="logsTab" class="tab-content">
+                <div class="card">
+                    <h3>📋 Logs de Execução</h3>
+                    <div class="logs-section" id="logs"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const socket = io();
+        let isRunning = false;
+        
+        const agentsConfig = {
+            'Architect': {
+                name: 'Software Architect',
+                icon: '🏗️',
+                description: 'Define arquitetura e padrões'
+            },
+            'Backend_Dev': {
+                name: 'Backend Developer',
+                icon: '💻',
+                description: 'Implementa código backend'
+            },
+            'QA_Engineer': {
+                name: 'QA Engineer',
+                icon: '🧪',
+                description: 'Cria testes completos'
+            },
+            'Security_Expert': {
+                name: 'Security Expert',
+                icon: '🔒',
+                description: 'Analisa segurança'
+            },
+            'Tech_Writer': {
+                name: 'Technical Writer',
+                icon: '📚',
+                description: 'Documenta o projeto'
+            }
+        };
+        
+        function initializeAgents() {
+            const grid = document.getElementById('agentsGrid');
+            grid.innerHTML = '';
+            
+            for (const [key, config] of Object.entries(agentsConfig)) {
+                const card = document.createElement('div');
+                card.className = 'agent-card pending';
+                card.id = `agent-${key}`;
+                card.innerHTML = `
+                    <div class="agent-header">
+                        <div class="agent-icon">${config.icon}</div>
+                        <div class="agent-info">
+                            <h3>${config.name}</h3>
+                            <span class="agent-status pending">Aguardando</span>
+                        </div>
+                    </div>
+                    <p style="color: #666; font-size: 14px; margin-bottom: 10px;">${config.description}</p>
+                    <div class="artifacts-list" id="artifacts-${key}">
+                        <small style="color: #999;">Nenhum artefato ainda</small>
+                    </div>
+                `;
+                grid.appendChild(card);
+            }
+        }
+        
+        function executeTask() {
+            const task = document.getElementById('task').value.trim();
+            
+            if (!task) {
+                alert('Por favor, descreva o projeto!');
+                return;
+            }
+            
+            if (isRunning) {
+                alert('Já existe uma execução em andamento!');
+                return;
+            }
+            
+            // Mostrar seção de output
+            document.getElementById('outputSection').classList.add('active');
+            document.getElementById('summaryCard').style.display = 'block';
+            
+            // Inicializar agentes
+            initializeAgents();
+            
+            // Limpar logs
+            document.getElementById('logs').innerHTML = '';
+            
+            // Resetar contadores
+            document.getElementById('totalArtifacts').textContent = '0';
+            document.getElementById('completedAgents').textContent = '0';
+            
+            // Desabilitar botão
+            const btn = document.getElementById('executeBtn');
+            btn.disabled = true;
+            btn.innerHTML = '⏳ Executando...';
+            
+            isRunning = true;
+            
+            // Enviar requisição
+            fetch('/api/execute', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ task: task })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert(data.error);
+                    resetUI();
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Erro ao iniciar execução');
+                resetUI();
+            });
+        }
+        
+        function resetUI() {
+            const btn = document.getElementById('executeBtn');
+            btn.disabled = false;
+            btn.innerHTML = '🚀 Iniciar Desenvolvimento';
+            isRunning = false;
+        }
+        
+        function switchTab(tab) {
+            // Atualizar tabs
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            
+            event.target.classList.add('active');
+            document.getElementById(`${tab}Tab`).classList.add('active');
+        }
+        
+        function addLog(message) {
+            const logs = document.getElementById('logs');
+            const line = document.createElement('div');
+            line.textContent = message;
+            logs.appendChild(line);
+            logs.scrollTop = logs.scrollHeight;
+        }
+        
+        function updateAgentStatus(agent, status) {
+            const card = document.getElementById(`agent-${agent}`);
+            if (!card) return;
+            
+            card.className = `agent-card ${status}`;
+            const statusBadge = card.querySelector('.agent-status');
+            statusBadge.className = `agent-status ${status}`;
+            statusBadge.textContent = status === 'pending' ? 'Aguardando' : 
+                                      status === 'running' ? 'Trabalhando...' : 
+                                      'Concluído ✓';
+        }
+        
+        function addArtifact(agent, artifact) {
+            const container = document.getElementById(`artifacts-${agent}`);
+            if (!container) return;
+            
+            // Remover mensagem de "nenhum artefato"
+            if (container.querySelector('small')) {
+                container.innerHTML = '';
+            }
+            
+            const item = document.createElement('div');
+            item.className = 'artifact-item';
+            item.innerHTML = `
+                <span class="artifact-name">📄 ${artifact.filename}</span>
+                <span class="artifact-size">${artifact.size}</span>
+            `;
+            container.appendChild(item);
+            
+            // Atualizar contador
+            const current = parseInt(document.getElementById('totalArtifacts').textContent);
+            document.getElementById('totalArtifacts').textContent = current + 1;
+        }
+        
+        // WebSocket events
+        socket.on('execution_started', (data) => {
+            addLog(`🚀 Iniciando desenvolvimento: ${data.task}`);
+            addLog(`👥 ${data.agents.length} agentes especializados trabalhando...`);
+        });
+        
+        socket.on('log', (data) => {
+            addLog(data.message);
+        });
+        
+        socket.on('agent_started', (data) => {
+            updateAgentStatus(data.agent, 'running');
+            addLog(`\n👤 ${agentsConfig[data.agent].name} começou a trabalhar...`);
+        });
+        
+        socket.on('artifact_created', (data) => {
+            addArtifact(data.agent, data.artifact);
+            addLog(`✅ ${agentsConfig[data.agent].name} criou: ${data.artifact.filename}`);
+        });
+        
+        socket.on('agent_completed', (data) => {
+            updateAgentStatus(data.agent, 'completed');
+            const current = parseInt(document.getElementById('completedAgents').textContent);
+            document.getElementById('completedAgents').textContent = current + 1;
+            addLog(`✓ ${agentsConfig[data.agent].name} concluiu suas tarefas\n`);
+        });
+        
+        socket.on('execution_completed', (data) => {
+            addLog('\n🎉 Desenvolvimento concluído com sucesso!');
+            addLog(`📁 Artefatos salvos em: ${data.output_dir}`);
+            resetUI();
+        });
+        
+        socket.on('execution_error', (data) => {
+            addLog(`\n❌ ERRO: ${data.error}`);
+            resetUI();
+        });
+    </script>
+</body>
+</html>
+
