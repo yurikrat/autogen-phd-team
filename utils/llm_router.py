@@ -4,6 +4,7 @@ LLM Router - Roteamento inteligente entre OpenAI e DeepSeek com fallback automá
 
 Funcionalidades:
 - Roteamento automático entre DeepSeek (principal) e OpenAI (fallback)
+- Detecção automática de complexidade para escolher modelo ideal
 - Tratamento de timeout e rate limit
 - Recuperação automática após cooldown
 - Monitoramento de uso e estatísticas
@@ -11,6 +12,7 @@ Funcionalidades:
 """
 
 import os
+import re
 import time
 import threading
 from typing import Any, Dict, List, Optional, Union
@@ -19,15 +21,194 @@ from openai import OpenAI
 from crewai import BaseLLM
 
 
+class ComplexityAnalyzer:
+    """
+    Analisador de complexidade de tasks para escolher modelo ideal.
+    """
+    
+    # Palavras-chave que indicam alta complexidade
+    HIGH_COMPLEXITY_KEYWORDS = [
+        # Escopo amplo
+        'completo', 'complete', 'sistema', 'system', 'aplicação', 'application',
+        'projeto', 'project', 'arquitetura', 'architecture', 'infraestrutura', 'infrastructure',
+        
+        # Multi-componentes
+        'multi', 'múltiplos', 'multiple', 'vários', 'various', 'todos', 'all',
+        'frontend e backend', 'full stack', 'fullstack', 'end-to-end', 'e2e',
+        
+        # Integração complexa
+        'integração', 'integration', 'microsserviço', 'microservice', 'microsserviço',
+        'orquestração', 'orchestration', 'pipeline', 'workflow',
+        'gateway', 'pagamento', 'payment', 'autenticação', 'authentication',
+        
+        # Análise profunda
+        'análise completa', 'deep analysis', 'troubleshooting', 'debug',
+        'investigação', 'investigation', 'diagnóstico', 'diagnostic',
+        
+        # Documentação extensa
+        'documentação completa', 'complete documentation', 'manual', 'guia completo',
+        'especificação', 'specification', 'detalhado', 'detailed',
+        
+        # Refatoração grande
+        'refatorar tudo', 'refactor all', 'reescrever', 'rewrite', 'migrar', 'migrate',
+        
+        # Logs e dados extensos
+        'todos os logs', 'all logs', 'histórico completo', 'full history',
+        'análise de logs', 'log analysis',
+        
+        # Deploy e CI/CD
+        'ci/cd', 'docker', 'kubernetes', 'deploy', 'deployment',
+    ]
+    
+    # Palavras-chave que indicam média complexidade
+    MEDIUM_COMPLEXITY_KEYWORDS = [
+        'api', 'endpoint', 'serviço', 'service', 'módulo', 'module',
+        'componente', 'component', 'feature', 'funcionalidade',
+        'crud', 'rest', 'graphql', 'banco de dados', 'database',
+    ]
+    
+    # Padrões que indicam alta complexidade
+    HIGH_COMPLEXITY_PATTERNS = [
+        r'\b\d+\+?\s*(arquivos|files|componentes|components|módulos|modules)\b',
+        r'\b(criar|create|desenvolver|develop|implementar|implement)\s+(um|uma|a)\s+sistema\b',
+        r'\b(backend|frontend)\s+(e|and)\s+(frontend|backend)\b',
+        r'\b(com|with)\s+\d+\+?\s+(funcionalidades|features|endpoints)\b',
+    ]
+    
+    @staticmethod
+    def analyze(messages: Union[str, List[Dict[str, str]]]) -> Dict[str, Any]:
+        """
+        Analisa a complexidade de uma task.
+        
+        Args:
+            messages: String ou lista de mensagens
+            
+        Returns:
+            Dict com análise de complexidade:
+            {
+                'level': 'low' | 'medium' | 'high',
+                'score': 0-100,
+                'estimated_tokens': int,
+                'recommended_model': 'deepseek-chat' | 'deepseek-reasoner',
+                'reasons': List[str]
+            }
+        """
+        # Converter para texto único
+        if isinstance(messages, str):
+            text = messages
+        elif isinstance(messages, list):
+            text = ' '.join([msg.get('content', '') for msg in messages if isinstance(msg, dict)])
+        else:
+            text = str(messages)
+        
+        text_lower = text.lower()
+        
+        # Inicializar análise
+        score = 0
+        reasons = []
+        
+        # 1. Análise de tamanho do input (15-40 pontos)
+        char_count = len(text)
+        if char_count > 1500:
+            score += 40
+            reasons.append(f"Input muito grande ({char_count} caracteres)")
+        elif char_count > 800:
+            score += 30
+            reasons.append(f"Input grande ({char_count} caracteres)")
+        elif char_count > 400:
+            score += 20
+            reasons.append(f"Input médio ({char_count} caracteres)")
+        elif char_count > 200:
+            score += 15
+            reasons.append(f"Input moderado ({char_count} caracteres)")
+        
+        # 2. Palavras-chave de alta complexidade (8 pontos cada, max 50)
+        high_keywords_found = []
+        for keyword in ComplexityAnalyzer.HIGH_COMPLEXITY_KEYWORDS:
+            if keyword in text_lower:
+                high_keywords_found.append(keyword)
+        
+        keyword_score = min(len(high_keywords_found) * 8, 50)
+        score += keyword_score
+        if high_keywords_found:
+            reasons.append(f"Palavras de alta complexidade ({len(high_keywords_found)}): {', '.join(high_keywords_found[:3])}")
+        
+        # 3. Palavras-chave de média complexidade (4 pontos cada, max 20)
+        medium_keywords_found = []
+        for keyword in ComplexityAnalyzer.MEDIUM_COMPLEXITY_KEYWORDS:
+            if keyword in text_lower:
+                medium_keywords_found.append(keyword)
+        
+        medium_score = min(len(medium_keywords_found) * 4, 20)
+        score += medium_score
+        if medium_keywords_found:
+            reasons.append(f"Palavras de média complexidade ({len(medium_keywords_found)}): {', '.join(medium_keywords_found[:3])}")
+        
+        # 4. Padrões de alta complexidade (15 pontos cada, max 45)
+        patterns_found = []
+        for pattern in ComplexityAnalyzer.HIGH_COMPLEXITY_PATTERNS:
+            if re.search(pattern, text_lower):
+                patterns_found.append(pattern)
+        
+        pattern_score = min(len(patterns_found) * 15, 45)
+        score += pattern_score
+        if patterns_found:
+            reasons.append(f"Padrões complexos detectados ({len(patterns_found)})")
+        
+        # 5. Estimativa de tokens de output necessários
+        # Baseado em heurísticas
+        estimated_tokens = 1000  # Base
+        
+        if 'completo' in text_lower or 'complete' in text_lower:
+            estimated_tokens += 3000
+        if 'sistema' in text_lower or 'system' in text_lower:
+            estimated_tokens += 2000
+        if 'documentação' in text_lower or 'documentation' in text_lower:
+            estimated_tokens += 2000
+        if 'todos' in text_lower or 'all' in text_lower:
+            estimated_tokens += 1500
+        if 'análise' in text_lower or 'analysis' in text_lower:
+            estimated_tokens += 1000
+        
+        # Adicionar baseado no tamanho do input
+        estimated_tokens += char_count // 2
+        
+        # 6. Determinar nível de complexidade
+        if score >= 45:
+            level = 'high'
+            recommended_model = 'deepseek-reasoner'
+        elif score >= 25:
+            level = 'medium'
+            # Média complexidade: usar reasoner se estimativa > 4K tokens OU score > 35
+            recommended_model = 'deepseek-reasoner' if (estimated_tokens > 4000 or score > 35) else 'deepseek-chat'
+        else:
+            level = 'low'
+            recommended_model = 'deepseek-chat'
+        
+        return {
+            'level': level,
+            'score': min(score, 100),
+            'estimated_tokens': estimated_tokens,
+            'recommended_model': recommended_model,
+            'reasons': reasons,
+            'keywords_found': {
+                'high': high_keywords_found[:5],
+                'medium': medium_keywords_found[:5]
+            }
+        }
+
+
 class LLMRouter(BaseLLM):
     """
-    Roteador inteligente de LLMs com fallback automático.
+    Roteador inteligente de LLMs com fallback automático e detecção de complexidade.
     
     Estratégia:
-    1. DeepSeek como principal (mais barato)
-    2. OpenAI como fallback (mais confiável)
-    3. Fallback automático em caso de erro 429, 503, timeout
-    4. Recuperação automática após cooldown
+    1. Analisa complexidade da task automaticamente
+    2. Escolhe modelo ideal (deepseek-chat ou deepseek-reasoner)
+    3. DeepSeek como principal (mais barato)
+    4. OpenAI como fallback (mais confiável)
+    5. Fallback automático em caso de erro 429, 503, timeout
+    6. Recuperação automática após cooldown
     """
     
     def __init__(
@@ -36,25 +217,32 @@ class LLMRouter(BaseLLM):
         temperature: Optional[float] = 0.7,
         cooldown_seconds: int = 60,
         max_retries: int = 2,
-        timeout: int = 30
+        timeout: int = 120,
+        auto_complexity_detection: bool = True,
+        complexity_threshold: int = 30
     ):
         """
         Inicializa o roteador de LLMs.
         
         Args:
-            model: Nome do modelo (usado para DeepSeek)
+            model: Nome do modelo padrão (usado para DeepSeek)
             temperature: Temperatura para geração
             cooldown_seconds: Tempo de espera após falha antes de tentar DeepSeek novamente
             max_retries: Número máximo de tentativas por API
             timeout: Timeout em segundos para requisições
+            auto_complexity_detection: Se True, detecta complexidade automaticamente
+            complexity_threshold: Score mínimo para considerar alta complexidade
         """
         # OBRIGATÓRIO: Chamar super().__init__() com model e temperature
         super().__init__(model=model, temperature=temperature)
         
         # Configurações
+        self.default_model = model
         self.cooldown_seconds = cooldown_seconds
         self.max_retries = max_retries
         self.timeout = timeout
+        self.auto_complexity_detection = auto_complexity_detection
+        self.complexity_threshold = complexity_threshold
         
         # Clientes
         self.deepseek_client = OpenAI(
@@ -73,18 +261,26 @@ class LLMRouter(BaseLLM):
         self.deepseek_failures = 0
         self.last_failure_time = None
         self.stats = {
-            'deepseek_calls': 0,
-            'deepseek_successes': 0,
+            'deepseek_chat_calls': 0,
+            'deepseek_chat_successes': 0,
+            'deepseek_reasoner_calls': 0,
+            'deepseek_reasoner_successes': 0,
             'deepseek_failures': 0,
             'openai_calls': 0,
             'openai_successes': 0,
             'openai_failures': 0,
             'total_fallbacks': 0,
+            'complexity_detections': {
+                'low': 0,
+                'medium': 0,
+                'high': 0
+            },
             'errors': []
         }
         
         print("🔀 LLM Router inicializado:")
-        print(f"   • Principal: DeepSeek ({model})")
+        print(f"   • Modelo padrão: DeepSeek ({model})")
+        print(f"   • Detecção automática: {'✅ Ativada' if auto_complexity_detection else '❌ Desativada'}")
         print(f"   • Fallback: OpenAI (gpt-4.1-mini)")
         print(f"   • Cooldown: {cooldown_seconds}s")
         print(f"   • Timeout: {timeout}s")
@@ -113,13 +309,16 @@ class LLMRouter(BaseLLM):
         if isinstance(messages, str):
             messages = [{"role": "user", "content": messages}]
         
+        # Determinar modelo baseado em complexidade e tools
+        selected_model = self._select_model(messages, tools)
+        
         # Determinar qual API usar
         use_deepseek = self._should_use_deepseek()
         
         if use_deepseek:
             # Tentar DeepSeek primeiro
             try:
-                return self._call_deepseek(messages, tools)
+                return self._call_deepseek(messages, tools, selected_model)
             except Exception as e:
                 # Registrar falha e tentar OpenAI
                 self._record_deepseek_failure(e)
@@ -143,6 +342,44 @@ class LLMRouter(BaseLLM):
                 self._record_error(error_msg)
                 raise RuntimeError(error_msg)
     
+    def _select_model(self, messages: List[Dict], tools: Optional[List] = None) -> str:
+        """
+        Seleciona o modelo ideal baseado em complexidade e tools.
+        
+        Args:
+            messages: Lista de mensagens
+            tools: Lista de tools (se presente, força deepseek-chat)
+            
+        Returns:
+            Nome do modelo ('deepseek-chat' ou 'deepseek-reasoner')
+        """
+        # Se tem tools, SEMPRE usar deepseek-chat
+        # (deepseek-reasoner não suporta function calling)
+        if tools:
+            return 'deepseek-chat'
+        
+        # Se detecção automática desativada, usar modelo padrão
+        if not self.auto_complexity_detection:
+            return self.default_model
+        
+        # Analisar complexidade
+        analysis = ComplexityAnalyzer.analyze(messages)
+        
+        # Registrar detecção
+        with self.lock:
+            self.stats['complexity_detections'][analysis['level']] += 1
+        
+        # Log da análise
+        print(f"\n   🔍 Análise de Complexidade:")
+        print(f"      • Nível: {analysis['level'].upper()}")
+        print(f"      • Score: {analysis['score']}/100")
+        print(f"      • Tokens estimados: {analysis['estimated_tokens']}")
+        print(f"      • Modelo recomendado: {analysis['recommended_model']}")
+        if analysis['reasons']:
+            print(f"      • Razões: {', '.join(analysis['reasons'][:2])}")
+        
+        return analysis['recommended_model']
+    
     def _should_use_deepseek(self) -> bool:
         """Determina se deve usar DeepSeek ou está em cooldown."""
         with self.lock:
@@ -162,10 +399,19 @@ class LLMRouter(BaseLLM):
             self.last_failure_time = None
             return True
     
-    def _call_deepseek(self, messages: List[Dict], tools: Optional[List] = None) -> str:
+    def _call_deepseek(self, messages: List[Dict], tools: Optional[List] = None, model: str = None) -> str:
         """Chama DeepSeek API com retry."""
+        if model is None:
+            model = self.default_model
+        
+        # Registrar chamada
         with self.lock:
-            self.stats['deepseek_calls'] += 1
+            if model == 'deepseek-chat':
+                self.stats['deepseek_chat_calls'] += 1
+            else:
+                self.stats['deepseek_reasoner_calls'] += 1
+        
+        print(f"   🔵 Usando DeepSeek ({model})...")
         
         last_error = None
         
@@ -173,13 +419,13 @@ class LLMRouter(BaseLLM):
             try:
                 # Preparar payload
                 payload = {
-                    "model": self.model,
+                    "model": model,
                     "messages": messages,
                     "temperature": self.temperature,
                 }
                 
-                # Adicionar tools se fornecido
-                if tools and self.supports_function_calling():
+                # Adicionar tools se fornecido E modelo suportar
+                if tools and model == 'deepseek-chat':
                     payload["tools"] = tools
                 
                 # Fazer chamada
@@ -187,7 +433,10 @@ class LLMRouter(BaseLLM):
                 
                 # Sucesso
                 with self.lock:
-                    self.stats['deepseek_successes'] += 1
+                    if model == 'deepseek-chat':
+                        self.stats['deepseek_chat_successes'] += 1
+                    else:
+                        self.stats['deepseek_reasoner_successes'] += 1
                     self.deepseek_failures = 0
                     self.last_failure_time = None
                 
@@ -227,6 +476,8 @@ class LLMRouter(BaseLLM):
         with self.lock:
             self.stats['openai_calls'] += 1
             self.stats['total_fallbacks'] += 1
+        
+        print(f"   🟢 Usando OpenAI (gpt-4.1-mini)...")
         
         last_error = None
         
@@ -301,16 +552,20 @@ class LLMRouter(BaseLLM):
     def get_stats(self) -> Dict:
         """Retorna estatísticas de uso."""
         with self.lock:
-            total_calls = self.stats['deepseek_calls'] + self.stats['openai_calls']
+            total_deepseek = self.stats['deepseek_chat_calls'] + self.stats['deepseek_reasoner_calls']
+            total_calls = total_deepseek + self.stats['openai_calls']
             
             return {
                 'total_calls': total_calls,
                 'deepseek': {
-                    'calls': self.stats['deepseek_calls'],
-                    'successes': self.stats['deepseek_successes'],
+                    'total_calls': total_deepseek,
+                    'chat_calls': self.stats['deepseek_chat_calls'],
+                    'chat_successes': self.stats['deepseek_chat_successes'],
+                    'reasoner_calls': self.stats['deepseek_reasoner_calls'],
+                    'reasoner_successes': self.stats['deepseek_reasoner_successes'],
                     'failures': self.stats['deepseek_failures'],
-                    'success_rate': (self.stats['deepseek_successes'] / self.stats['deepseek_calls'] * 100) 
-                                   if self.stats['deepseek_calls'] > 0 else 0
+                    'success_rate': ((self.stats['deepseek_chat_successes'] + self.stats['deepseek_reasoner_successes']) / total_deepseek * 100) 
+                                   if total_deepseek > 0 else 0
                 },
                 'openai': {
                     'calls': self.stats['openai_calls'],
@@ -319,6 +574,7 @@ class LLMRouter(BaseLLM):
                     'success_rate': (self.stats['openai_successes'] / self.stats['openai_calls'] * 100)
                                    if self.stats['openai_calls'] > 0 else 0
                 },
+                'complexity_detections': self.stats['complexity_detections'],
                 'total_fallbacks': self.stats['total_fallbacks'],
                 'recent_errors': self.stats['errors'][-5:]
             }
@@ -334,8 +590,9 @@ class LLMRouter(BaseLLM):
         print(f"Total de fallbacks: {stats['total_fallbacks']}")
         
         print(f"\n🔵 DeepSeek:")
-        print(f"   Chamadas: {stats['deepseek']['calls']}")
-        print(f"   Sucessos: {stats['deepseek']['successes']}")
+        print(f"   Total: {stats['deepseek']['total_calls']} chamadas")
+        print(f"   • deepseek-chat: {stats['deepseek']['chat_calls']} ({stats['deepseek']['chat_successes']} sucessos)")
+        print(f"   • deepseek-reasoner: {stats['deepseek']['reasoner_calls']} ({stats['deepseek']['reasoner_successes']} sucessos)")
         print(f"   Falhas: {stats['deepseek']['failures']}")
         print(f"   Taxa de sucesso: {stats['deepseek']['success_rate']:.1f}%")
         
@@ -344,6 +601,11 @@ class LLMRouter(BaseLLM):
         print(f"   Sucessos: {stats['openai']['successes']}")
         print(f"   Falhas: {stats['openai']['failures']}")
         print(f"   Taxa de sucesso: {stats['openai']['success_rate']:.1f}%")
+        
+        print(f"\n🔍 Detecção de Complexidade:")
+        print(f"   • Baixa: {stats['complexity_detections']['low']}")
+        print(f"   • Média: {stats['complexity_detections']['medium']}")
+        print(f"   • Alta: {stats['complexity_detections']['high']}")
         
         if stats['recent_errors']:
             print(f"\n❌ Erros recentes:")
@@ -362,7 +624,9 @@ def get_llm_router(
     temperature: float = 0.7,
     cooldown_seconds: int = 60,
     max_retries: int = 2,
-    timeout: int = 30
+    timeout: int = 120,
+    auto_complexity_detection: bool = True,
+    complexity_threshold: int = 30
 ) -> LLMRouter:
     """Retorna instância global do LLM Router."""
     global _global_router
@@ -373,34 +637,62 @@ def get_llm_router(
             temperature=temperature,
             cooldown_seconds=cooldown_seconds,
             max_retries=max_retries,
-            timeout=timeout
+            timeout=timeout,
+            auto_complexity_detection=auto_complexity_detection,
+            complexity_threshold=complexity_threshold
         )
     
     return _global_router
 
 
 if __name__ == "__main__":
-    # Teste do LLM Router
-    print("🧪 Testando LLM Router...\n")
+    # Teste do LLM Router com detecção de complexidade
+    print("🧪 Testando LLM Router com Detecção de Complexidade...\n")
     
     router = get_llm_router()
     
-    # Teste 1: Chamada simples
-    print("Teste 1: Chamada simples")
+    # Teste 1: Task simples (deve usar deepseek-chat)
+    print("\n" + "=" * 80)
+    print("Teste 1: Task Simples")
+    print("=" * 80)
     try:
-        response = router.call("Olá! Responda apenas 'Oi' para confirmar que está funcionando.")
-        print(f"✅ Resposta: {response}\n")
+        response = router.call("Crie uma função Python que soma dois números.")
+        print(f"✅ Resposta: {response[:100]}\n")
     except Exception as e:
         print(f"❌ Erro: {e}\n")
     
-    # Teste 2: Múltiplas chamadas
-    print("Teste 2: Múltiplas chamadas")
-    for i in range(3):
-        try:
-            response = router.call(f"Diga apenas o número {i+1}")
-            print(f"✅ Chamada {i+1}: {response[:50]}")
-        except Exception as e:
-            print(f"❌ Chamada {i+1} falhou: {e}")
+    # Teste 2: Task média (pode usar chat ou reasoner)
+    print("\n" + "=" * 80)
+    print("Teste 2: Task Média")
+    print("=" * 80)
+    try:
+        response = router.call("Crie uma API REST completa com CRUD de usuários usando FastAPI.")
+        print(f"✅ Resposta: {response[:100]}\n")
+    except Exception as e:
+        print(f"❌ Erro: {e}\n")
+    
+    # Teste 3: Task complexa (deve usar deepseek-reasoner)
+    print("\n" + "=" * 80)
+    print("Teste 3: Task Complexa")
+    print("=" * 80)
+    try:
+        response = router.call("""
+        Crie um sistema completo de e-commerce com:
+        - Backend em Python com FastAPI
+        - Frontend em React
+        - Banco de dados PostgreSQL
+        - Autenticação JWT
+        - Sistema de pagamento
+        - Carrinho de compras
+        - Painel administrativo
+        - Documentação completa
+        - Testes unitários e de integração
+        - Docker e docker-compose
+        - CI/CD com GitHub Actions
+        """)
+        print(f"✅ Resposta: {response[:100]}\n")
+    except Exception as e:
+        print(f"❌ Erro: {e}\n")
     
     # Estatísticas
     router.print_stats()
