@@ -2,6 +2,7 @@
 Routing: heurística de seleção dinâmica de papéis com base em palavras-chave da task.
 """
 
+import re
 from typing import List
 
 # Núcleo sempre presente
@@ -151,6 +152,12 @@ KEYWORDS = {
 }
 
 
+ROLE_PATTERNS = {
+    role: re.compile('|'.join(re.escape(kw) for kw in keywords), re.IGNORECASE)
+    for role, keywords in KEYWORDS.items()
+}
+
+
 def select_roles(task_text: str) -> List[str]:
     """
     Seleciona papéis dinamicamente com base em palavras-chave da task.
@@ -161,15 +168,11 @@ def select_roles(task_text: str) -> List[str]:
     Returns:
         Lista de nomes de papéis a serem ativados
     """
-    task_lower = task_text.lower()
     selected = set(CORE_ALWAYS)  # Núcleo sempre presente
     
-    # Varrer palavras-chave
-    for role, keywords in KEYWORDS.items():
-        for keyword in keywords:
-            if keyword in task_lower:
-                selected.add(role)
-                break  # Basta uma palavra-chave bater
+    for role, pattern in ROLE_PATTERNS.items():
+        if pattern.search(task_text):
+            selected.add(role)
     
     # Fallback: se nenhum papel adicional foi selecionado, incluir Backend_Dev
     if len(selected) == len(CORE_ALWAYS):
