@@ -295,7 +295,7 @@ def create_project_manager():
 # CREW COM PLANNING + HIERARCHICAL
 # ============================================================================
 
-def create_crew_with_planning(task_description: str):
+def create_crew_with_planning(task_description: str, enable_memory: bool = False, embedder_config: dict = None):
     """
     Cria Crew com Planning + Hierarchical Process.
     
@@ -304,12 +304,54 @@ def create_crew_with_planning(task_description: str):
     - Hierarchical: Manager coordena e delega
     - LLM Router V3: Circuit Breaker + Adaptive Timeout
     - 10 Agentes Granulares: Especializados
+    - Memory (opcional): Short-term, Long-term, Entity
     
     Args:
         task_description: Descrição da task complexa
+        enable_memory: Habilitar memory (requer embedder válido). Default: False
+        embedder_config: Configuração do embedder. Exemplo:
+            {
+                "provider": "openai",
+                "config": {
+                    "model": "text-embedding-3-small",
+                    "api_key": "your-api-key"
+                }
+            }
+            Ou para Ollama local:
+            {
+                "provider": "ollama",
+                "config": {"model": "mxbai-embed-large"}
+            }
     
     Returns:
         Crew configurado e pronto para executar
+    
+    Examples:
+        # Sem memory (default)
+        crew = create_crew_with_planning(task)
+        
+        # Com memory (OpenAI)
+        crew = create_crew_with_planning(
+            task,
+            enable_memory=True,
+            embedder_config={
+                "provider": "openai",
+                "config": {
+                    "model": "text-embedding-3-small",
+                    "api_key": os.getenv("OPENAI_API_KEY")
+                }
+            }
+        )
+        
+        # Com memory (Ollama local - sem API externa)
+        crew = create_crew_with_planning(
+            task,
+            enable_memory=True,
+            embedder_config={
+                "provider": "ollama",
+                "config": {"model": "mxbai-embed-large"}
+            }
+        )
     """
     
     # Criar agentes especializados
@@ -366,8 +408,9 @@ def create_crew_with_planning(task_description: str):
         # manager_agent=manager,  # ← Opcional: manager customizado
         max_rpm=10,  # ← Rate limiting (10 requests/min)
         verbose=True,
-        memory=False,  # ← Desabilitado (embedding 404)
-        cache=False,  # ← Desabilitado para teste
+        memory=enable_memory,  # ← Opcional (requer embedder válido)
+        cache=enable_memory,  # ← Habilitado junto com memory
+        embedder=embedder_config if embedder_config else None  # ← Configurar se fornecido
     )
     
     return crew
@@ -432,10 +475,11 @@ def main():
     print(task)
     print()
     
-    # Criar crew
+    # Criar crew (sem memory por padrão)
     print("🔧 Creating Crew with Planning + Hierarchical...")
-    crew = create_crew_with_planning(task)
+    crew = create_crew_with_planning(task, enable_memory=False)
     print("✅ Crew created!")
+    print("⚠️  Memory: DISABLED (enable with enable_memory=True + embedder_config)")
     print()
     
     # Executar
