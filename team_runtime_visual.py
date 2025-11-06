@@ -8,7 +8,10 @@ import os
 import sys
 import webbrowser
 import time
-from datetime import datetime
+from datetime import datetime, timezone
+import threading
+import contextlib
+from openai import OpenAI
 from dotenv import load_dotenv
 
 from autogen_agentchat.agents import AssistantAgent
@@ -73,6 +76,11 @@ async def main():
         model="gpt-4.1-mini",
         api_key=api_key,
     )
+    # Cliente para diagnóstico (ping OpenAI)
+    try:
+        diag_client = OpenAI(api_key=api_key)
+    except Exception:
+        diag_client = None
     
     # Criar FunctionTools das funções de I/O
     tools = [
@@ -145,8 +153,9 @@ async def main():
 3. **Colaboração Estruturada:** 
    - AI_Orchestrator coordena e decompõe a task
    - Project_Manager define marcos e monitora progresso
-   - Tech_Architect define arquitetura e padrões
+   - Tech_Architect define arquitetura, padrões E valida dependências técnicas
    - Papéis especializados implementam suas partes
+   - Code_Validator valida completude e executabilidade do código
    - Finalizer consolida tudo ao final
 
 4. **PROVOCAÇÃO E EVOLUÇÃO:**
@@ -154,8 +163,17 @@ async def main():
    - Use frases como: "Você considerou...", "E se...", "Como garantir..."
    - Não aceite soluções medianas - force melhorias
    - Eleve constantemente o nível técnico
+   - Tech_Architect SEMPRE pergunta: "Onde estão os arquivos importados?"
+   - Code_Validator SEMPRE valida imports e dependências
 
-5. **Finalização Explícita:**
+5. **VALIDAÇÃO DE CÓDIGO (Code_Validator):**
+   - APÓS implementação, Code_Validator DEVE validar:
+     ✅ Todos os imports têm arquivos correspondentes
+     ✅ Arquivos de config necessários foram criados (database.py, config.py, etc)
+     ✅ Código é executável sem ModuleNotFoundError
+   - Se faltar arquivos, Code_Validator EXIGE criação antes de prosseguir
+
+7. **Finalização Explícita:**
    - Finalizer deve aguardar até que todos tenham concluído
    - Chamar `list_artifacts()` para listar artefatos
    - Chamar `finalize_run()` para gerar MANIFEST.md
@@ -163,7 +181,7 @@ async def main():
    - Anunciar caminhos locais dos artefatos
    - Encerrar dizendo a palavra final de encerramento
 
-6. **Run Directory:** {store.run_dir.absolute()}
+8. **Run Directory:** {store.run_dir.absolute()}
 
 **INÍCIO DA EXECUÇÃO:**
 """
@@ -178,8 +196,107 @@ async def main():
     
     try:
         message_count = 0
+        start_ts = time.time()
+        last_msg_ts = time.time()
+        # Defaults ajustados para melhor visibilidade: 10s/30s (pode sobrescrever via env)
+        heartbeat_interval = int(os.getenv("TRACE_INTERVAL_SECS", "10"))
+        stall_secs = int(os.getenv("DIAG_STALL_SECS", "30"))
+        diag_enabled = os.getenv("DIAG_PING_ENABLED", "1") != "0"
+
+        stop_event = threading.Event()
+
+        def _heartbeat_thread():
+            """Thread de heartbeat: não depende do event loop (mais resiliente)."""
+            try:
+                while not stop_event.is_set():
+                    time.sleep(heartbeat_interval)
+                    now = time.time()
+                    uptime = int(now - start_ts)
+                    last_age = int(now - last_msg_ts)
+                    artifacts_count = len(store.artifacts)
+                    # Log para progress.log
+                    try:
+                        io_tools.report_progress(
+                            stage="Heartbeat",
+                            message=(
+                                f"msgs={message_count}, artifacts={artifacts_count}, "
+                                f"last_msg_age={last_age}s, uptime={uptime}s"
+                            )
+                        )
+                    except Exception:
+                        pass
+                    # Métricas para dashboard
+                    if DASHBOARD_AVAILABLE:
+                        try:
+                            emit_event('metric', {
+                                'heartbeat_ts': datetime.now(timezone.utc).isoformat(),
+                                'message_count': message_count,
+                                'artifact_count': artifacts_count,
+                                'last_message_age_sec': last_age,
+                                'uptime_sec': uptime,
+                            })
+                        except Exception:
+                            pass
+                    # Diagnóstico de stall (quando sem mensagens por muito tempo)
+                    if diag_enabled and diag_client is not None and last_age >= stall_secs:
+                        t0 = time.time()
+                        status = "ok"
+                        err_str = None
+                        try:
+                            diag_client.chat.completions.create(
+                                model="gpt-4.1-mini",
+                                messages=[{"role": "user", "content": "ping"}],
+                                max_tokens=1,
+                            )
+                        except Exception as e:
+                            status = "error"
+                            err_str = str(e)[:300]
+                        latency_ms = int((time.time() - t0) * 1000)
+
+                        try:
+                            io_tools.report_progress(
+                                stage="Diag",
+                                message=(
+                                    f"openai_ping status={status} latency_ms={latency_ms}"
+                                    + (f" error={err_str}" if err_str else "")
+                                )
+                            )
+                        except Exception:
+                            pass
+                        if DASHBOARD_AVAILABLE:
+                            try:
+                                emit_event('metric', {
+                                    'diagnostic': {
+                                        'status': status,
+                                        'latency_ms': latency_ms,
+                                        'error': err_str,
+                                        'ts': datetime.now(timezone.utc).isoformat(),
+                                    }
+                                })
+                            except Exception:
+                                pass
+            except Exception as e:
+                # Garantir que qualquer erro no heartbeat seja logado, não terminando o processo principal
+                try:
+                    io_tools.report_progress("HeartbeatError", f"{type(e).__name__}: {str(e)[:300]}")
+                except Exception:
+                    pass
+
+        hb_thread = threading.Thread(target=_heartbeat_thread, name="heartbeat", daemon=True)
+        hb_thread.start()
+        # Logar configuração de tracing
+        try:
+            io_tools.report_progress(
+                stage="Config",
+                message=(
+                    f"TRACE_INTERVAL_SECS={heartbeat_interval}, DIAG_STALL_SECS={stall_secs}, DIAG_PING_ENABLED={int(diag_enabled)}"
+                )
+            )
+        except Exception:
+            pass
         async for message in team.run_stream(task=intro):
             message_count += 1
+            last_msg_ts = time.time()
             
             # Extrair informações da mensagem
             msg_type = type(message).__name__
@@ -233,6 +350,10 @@ async def main():
                     except:
                         pass
         
+        # Encerrar heartbeat thread
+        stop_event.set()
+        hb_thread.join(timeout=2.0)
+
         print("\n" + "=" * 80)
         print(f"EXECUÇÃO CONCLUÍDA - {message_count} mensagens processadas")
         print("=" * 80)

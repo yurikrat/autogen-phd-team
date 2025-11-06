@@ -67,7 +67,9 @@ def save_text(name: str, content: str, relative_path: str = "") -> dict[str, Any
     """
     store = get_store()
     
-    if not name.endswith(".txt"):
+    # Se o nome já tiver uma extensão (ex: .py, .md), preserva-a.
+    # Caso contrário, usa .txt como padrão.
+    if "." not in name:
         name = f"{name}.txt"
     
     if relative_path:

@@ -91,10 +91,15 @@ KEYWORDS = {
         "oidc", "saml", "sso", "mfa", "rbac", "abac", "least privilege",
         "gestão de acesso", "secrets management"
     ],
-    "QA_Engineer": [
-        "qa", "teste", "testing", "qualidade", "test automation",
-        "selenium", "cypress", "jest", "pytest", "unittest",
-        "cobertura", "bug", "validação"
+        "QA_Analyst": [
+        "qa", "teste", "test", "qualidade", "quality assurance",
+        "testagem", "validação", "verificação"
+    ],
+    "Code_Validator": [
+        # Sempre ativado quando há código/desenvolvimento
+        "código", "code", "implementação", "implementar", "desenvolver",
+        "api", "backend", "frontend", "script", "função", "classe",
+        "módulo", "arquivo", "projeto", "aplicação", "software"
     ],
     "Performance_Engineer": [
         "performance", "otimização", "benchmark", "carga", "stress",
