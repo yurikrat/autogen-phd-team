@@ -18,16 +18,22 @@ Total: 33 agentes
 
 from crewai import Agent
 from langchain_openai import ChatOpenAI
+import sys
+from pathlib import Path
+
+# Importar LLM Router
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from utils.llm_router import get_llm_router
 
 
 def create_llm(temperature=0.7):
-    """Cria LLM com configurações otimizadas."""
-    return ChatOpenAI(
-        model="gpt-4.1-mini",
+    """Cria LLM com roteamento inteligente DeepSeek/OpenAI."""
+    return get_llm_router(
+        model="deepseek-chat",
         temperature=temperature,
-        timeout=120,
-        max_retries=3,
-        request_timeout=120
+        cooldown_seconds=60,
+        max_retries=2,
+        timeout=120
     )
 
 
