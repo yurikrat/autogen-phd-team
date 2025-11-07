@@ -14,8 +14,12 @@ Solução para travamentos em tasks complexas.
 import os
 import sys
 from pathlib import Path
+from dotenv import load_dotenv
 from crewai import Agent, Task, Crew, Process
 from crewai.tools import tool
+
+# Carregar variáveis de ambiente
+load_dotenv()
 
 # Importar LLM Router V3
 sys.path.insert(0, str(Path(__file__).parent))
